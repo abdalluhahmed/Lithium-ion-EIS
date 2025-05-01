@@ -1,0 +1,70 @@
+
+
+
+%% Data_Capacity
+
+filename = 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Datasets\Capacity data\Data_Capacity_C01.txt';
+data_capacity = dlmread(filename, '\t', 1, 0);
+
+A = data_capacity(:,2);
+B = data_capacity(:,4);
+
+Q_nominal = max(B(A == 0));   % Nominal charge capacity in mA.h --> its max capacity in cycle 0
+
+[C, ~, ic] = unique(A);
+B = accumarray(ic, B, [], @max);
+B=B(1:end-1,:);
+
+
+SOH = (B / Q_nominal) * 100;
+SOH=SOH(1:end-1,:);
+A=1:length(SOH);
+
+
+figure;
+plot(A, SOH, 'LineWidth', 4, 'Color', 'black');
+xlabel('Cycle number', 'FontSize', 40, 'FontWeight', 'bold');
+ylabel('SOH (%)', 'FontSize', 40, 'FontWeight', 'bold');
+set(gca, 'FontSize', 40, 'FontWeight', 'bold', 'LineWidth', 4);  % Set font size, weight of the tick labels, and box line width
+
+grid on;
+box on;
+
+figure;
+B=B(1:end-1,:);
+plot(A, B, 'LineWidth', 4, 'Color', 'black');
+xlabel('Cycle number', 'FontSize', 40, 'FontWeight', 'bold');
+ylabel('Capacity (mAh)', 'FontSize', 40, 'FontWeight', 'bold');
+set(gca, 'FontSize', 40, 'FontWeight', 'bold', 'LineWidth', 4);  % Set font size, weight of the tick labels, and box line width
+
+grid on;
+box on;
+
+%% Data_EIS
+
+filename = 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Datasets\EIS data\EIS_state_I_45C01.txt';
+data_EIS = dlmread(filename, '\t', 1, 0);
+
+%% Extract EIS data for 90%, 80%, 70%, and 60% SOH and plot
+
+percentages = [100,90, 80, 50];
+colors = {'black', 'blue', 'red', 'green'};
+figure;
+
+for i = 1:length(percentages)
+    p = percentages(i);
+    [~, idx] = min(abs(SOH - p)); % Find index of value closest to the percentage
+    cycle_number = A(idx); % Extract cycle number
+
+    indices = find(data_EIS(:, 2) == cycle_number); % Find indices of the cycle number in the EIS data
+    plot(data_EIS(indices, 4), data_EIS(indices, 5), 'LineStyle', '-', 'Marker', 'p', 'DisplayName', strcat(num2str(p), '% SOH'), 'LineWidth', 4, 'Color', colors{i});
+    hold on;
+end
+
+xlabel('Re(Z)/Ohm', 'FontSize', 40, 'FontWeight', 'bold');
+ylabel('-Im(Z)/Ohm', 'FontSize', 40, 'FontWeight', 'bold');
+legend('FontSize', 40);
+set(gca, 'FontSize', 40, 'FontWeight', 'bold', 'LineWidth', 4);  % Set font size, weight of the tick labels, and box line width
+
+grid on;
+box on;
