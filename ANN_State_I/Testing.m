@@ -1,102 +1,118 @@
-
-
-
 % newff, newcf, traingdm, traingda, traingdx, trainlm, trainrp, traincgf, traincgb, trainbfg, traincgp, trainoss
 
-close all;
-clc;
-
-%% Load Training Data
 %% Load Training Data
 load 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\Dataset-State_I\Training\Output_All.mat';
 load 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\Dataset-State_I\Training\Inputs_All.mat';
-Inputs = feature_matrix; % Assuming 'feature_matrix' is your feature data
-Output_All = Output_All'; % Assuming 'Output_All' is your output data
+Inputs     = feature_matrix;    % feature_matrix loaded from Inputs_All.mat
+Output_All = Output_All';       % transpose for plotting
 
-%% Initialize Ensemble Parameters
-
-
-% Rest of the code (Testing and Model Selection) remains the same
-
-
-%% Testing
-
-%% Testing
-
-%% Testing
-
-%% Testing with Two Datasets
-
-% Load test data for 45C02 and 35C02
+%% Load Test Data & compute true SOH
 load 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\Dataset-State_I\Testing\Output_45C02.mat';
-Output_45C02 = Output_45C02'; % Transpose if necessary
+Output_45C02 = Output_45C02';  
 load 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\Dataset-State_I\Testing\Output_35C02.mat';
-Output_35C02 = Output_35C02'; % Transpose if necessary
+Output_35C02 = Output_35C02';  
 
-% Calculate actual SOH for both datasets
 SOH_actual_45C02 = (Output_45C02 / Output_45C02(1,1)) * 100;
 SOH_actual_35C02 = (Output_35C02 / Output_35C02(1,1)) * 100;
 
-mseArray_45C02 = zeros(1, numModels); % Array to store MSE for each model for 45C02
-mseArray_35C02 = zeros(1, numModels); % Array to store MSE for each model for 35C02
+%% Discover all net*.mat files and sort by numeric suffix
+modelDir = 'C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\ANN_State_I\net';
+allFiles  = dir(fullfile(modelDir, 'net*.mat'));
+nums      = arrayfun(@(f) sscanf(f.name,'net%d.mat'), allFiles);
+[~, ord]  = sort(nums);
+files     = allFiles(ord);
 
-for i = 1:numModels
-    % Load the trained model
-    load(['C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\ANN_State_I\net\net' num2str(i) '.mat']);
+N          = numel(files);
+mse45      = zeros(1, N);
+mse35      = zeros(1, N);
 
-    % Predict using the loaded model for both datasets
-    predicted_SOH_45C02 = nets{i}(features_test);
-    normalized_predicted_SOH_45C02 = (predicted_SOH_45C02 / predicted_SOH_45C02(1,1)) * 100;
-    predicted_SOH_35C02 = nets{i}(features_test_35C02);
-    normalized_predicted_SOH_35C02 = (predicted_SOH_35C02 / predicted_SOH_35C02(1,1)) * 100;
+%% Evaluate each model on both test sets
+for k = 1:N
+    % Load the k-th network file
+    S = load(fullfile(modelDir, files(k).name));
+    fn = fieldnames(S);
+    % Find the network object inside S
+    mdl = [];
+    for i = 1:numel(fn)
+        if isa(S.(fn{i}), 'network')
+            mdl = S.(fn{i});
+            break
+        end
+    end
+    if isempty(mdl)
+        error('No network object found in %s', files(k).name);
+    end
 
-    % Calculate MSE for this model for both datasets
-    mseArray_45C02(i) = mean((SOH_actual_45C02 - normalized_predicted_SOH_45C02).^2);
-    mseArray_35C02(i) = mean((SOH_actual_35C02 - normalized_predicted_SOH_35C02).^2);
+    % Perform predictions
+    pred45 = mdl(features_test);
+    pred35 = mdl(features_test_35C02);
+    norm45 = (pred45 / pred45(1,1)) * 100;
+    norm35 = (pred35 / pred35(1,1)) * 100;
+
+    % Compute MSE
+    mse45(k) = mean((SOH_actual_45C02 - norm45).^2);
+    mse35(k) = mean((SOH_actual_35C02 - norm35).^2);
 end
 
-%% Calculate average MSE for each model and identify the best model
-% Logical array where both MSEs are less than 1
+%% Select the best model (MSE < 10 on both & lowest average)
+validModels = (mse45 < 10) & (mse35 < 10);
+if ~any(validModels)
+    error('No models meet MSE < 10 on both test sets.');
+end
+avgMSE      = (mse45(validModels) + mse35(validModels)) / 2;
+candidates  = find(validModels);
+[~, idxRel] = min(avgMSE);
+bestFile    = files(candidates(idxRel)).name;
+fprintf('Best model file: %s\n', bestFile);
 
-% averageMSE = (mseArray_45C02 + mseArray_35C02) / 2;
-% [~, bestModelIndex] = min(averageMSE);
-
-validModels = (mseArray_45C02 < 10) & (mseArray_35C02 < 10);
-
-% Check if there are any valid models
-if any(validModels)
-    % Calculate average MSE only for valid models
-    averageMSE = (mseArray_45C02(validModels) + mseArray_35C02(validModels)) / 2;
-
-    % Find the index of the model with the lowest average MSE
-    [~, minIndex] = min(averageMSE);
-
-    % Find the actual model index in the original array
-    modelIndices = find(validModels);
-    bestModelIndex = modelIndices(minIndex);
-else
-    % Handle case where no models meet the condition
-    disp('No models found with MSE < 1 for both datasets.');
-    bestModelIndex = []; % Or handle as appropriate for your use case
+%% Load the best model once
+S = load(fullfile(modelDir, bestFile));
+fn = fieldnames(S);
+bestModel = [];
+for i = 1:numel(fn)
+    if isa(S.(fn{i}), 'network')
+        bestModel = S.(fn{i});
+        break
+    end
+end
+if isempty(bestModel)
+    error('Could not find a network object in %s', bestFile);
 end
 
-% Now bestModelIndex contains the index of the best model meeting the condition,
-% or it's empty if no such model exists.
+%% Use bestModel for final predictions & plotting
+p45_best = bestModel(features_test);
+SOH45_est = (p45_best / p45_best(1,1)) * 100;
+p35_best = bestModel(features_test_35C02);
+SOH35_est = (p35_best / p35_best(1,1)) * 100;
 
+% Example: plot 45°C test
+figure; hold on;
+plot(SOH_actual_45C02, 'b-o', 'LineWidth', 2);
+plot(SOH45_est,          'r-*', 'LineWidth', 2);
+xlabel('Cycle Number', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('SOH (%)',       'FontSize', 12, 'FontWeight', 'bold');
+title('45°C Test: Actual vs. Estimated SOH', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Actual','Estimated'); grid on; box on;
 
-%% Use the best model for final prediction on both datasets
-    load(['C:\Users\msi-pc\Desktop\Li-ion paper 2\Model\Encode-Decode\ANN_State_I\net\net' num2str(i) '.mat']);
-bestModel = nets{bestModelIndex}; % Load the best model
+% Compute and display final metrics
+mse_final45  = mean((SOH_actual_45C02 - SOH45_est).^2);
+rmse_final45 = sqrt(mse_final45);
+fprintf('45°C Test  MSE=%.4f  RMSE=%.4f\n', mse_final45, rmse_final45);
+%
+figure; hold on;
+plot(SOH_actual_35C02, 'b-o', 'LineWidth', 2);
+plot(SOH35_est,          'r-*', 'LineWidth', 2);
+xlabel('Cycle Number', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('SOH (%)',       'FontSize', 12, 'FontWeight', 'bold');
+title('35°C Test: Actual vs. Estimated SOH', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Actual','Estimated'); grid on; box on;
 
-% Predict and normalize for 45C02 dataset
-predicted_SOH_45C02 = bestModel(features_test);
-normalized_predicted_SOH_45C02 = (predicted_SOH_45C02 / predicted_SOH_45C02(1,1)) * 100;
-bestModelPrediction_45C02 = normalized_predicted_SOH_45C02;
+% Compute and display final metrics
+mse_final35  = mean((SOH_actual_35C02 - SOH35_est).^2);
+rmse_final35 = sqrt(mse_final35);
+fprintf('45°C Test  MSE=%.4f  RMSE=%.4f\n', mse_final35, rmse_final35);
 
-% Predict and normalize for 35C02 dataset
-predicted_SOH_35C02 = bestModel(features_test_35C02);
-normalized_predicted_SOH_35C02 = (predicted_SOH_35C02 / predicted_SOH_35C02(1,1)) * 100;
-bestModelPrediction_35C02 = normalized_predicted_SOH_35C02;
+% Repeat plotting and metrics for 35°C as needed...
 
 
 % Plot and calculate metrics for both datasets using the best model
